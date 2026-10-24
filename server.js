@@ -1,3 +1,4 @@
+import fs from 'fs';
 import express from 'express';
 import cors from 'cors';
 import pino from 'pino';
@@ -16,39 +17,42 @@ async function start() {
   const { state, saveCreds } = await useMultiFileAuthState('auth');
   const { version } = await fetchLatestBaileysVersion();
 
-  sock = makeWASocket({
+  const s = makeWASocket({
     version,
     auth: state,
     logger: pino({ level: 'silent' }),
-    printQRInTerminal: false,
+    browser: ['Ubuntu', 'Chrome', '22.04.4'],
   });
+  sock = s;
 
-  sock.ev.on('creds.update', saveCreds);
+  s.ev.on('creds.update', saveCreds);
 
-  if (!sock.authState.creds.registered && PHONE) {
-    setTimeout(async () => {
+  let asked = false;
+  s.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
+    if (qr && !asked && !s.authState.creds.registered && PHONE) {
+      asked = true;
       try {
-        const code = await sock.requestPairingCode(PHONE);
+        const code = await s.requestPairingCode(PHONE);
         console.log('PAIRING CODE:', code);
       } catch (e) {
         console.log('Pairing failed:', e.message);
       }
-    }, 3000);
-  }
+    }
 
-  sock.ev.on('connection.update', ({ connection, lastDisconnect }) => {
     if (connection === 'open') {
       ready = true;
       console.log('WhatsApp connected');
     }
+
     if (connection === 'close') {
       ready = false;
       const code = lastDisconnect?.error?.output?.statusCode;
-      if (code === DisconnectReason.loggedOut) {
-        console.log('Logged out. Delete the auth folder and pair again.');
-      } else {
-        start();
+      const out = code === DisconnectReason.loggedOut;
+      if (out) {
+        console.log('Logged out. Resetting and waiting for a new code.');
+        fs.rmSync('auth', { recursive: true, force: true });
       }
+      setTimeout(start, out ? 10000 : 3000);
     }
   });
 }
