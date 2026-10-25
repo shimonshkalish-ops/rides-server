@@ -1,6 +1,7 @@
 import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import express from 'express';
-import cors from 'cors';
 import pino from 'pino';
 import makeWASocket, {
   useMultiFileAuthState,
@@ -8,7 +9,8 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
 } from '@whiskeysockets/baileys';
 
-const { PHONE, GROUP_ID, SECRET, SITE_URL, PORT = 3000 } = process.env;
+const { PHONE, GROUP_ID, SECRET, PORT = 3000 } = process.env;
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 let sock = null;
 let ready = false;
@@ -59,7 +61,6 @@ async function start() {
 
 const app = express();
 app.use(express.json({ limit: '10kb' }));
-app.use(cors({ origin: SITE_URL || false }));
 
 let hits = [];
 function limited() {
@@ -72,7 +73,8 @@ function limited() {
 
 const clean = (v, n = 120) => String(v ?? '').replace(/[\r\n]+/g, ' ').slice(0, n);
 
-app.get('/', (_req, res) => res.send(ready ? 'ok' : 'not connected'));
+app.get('/', (_req, res) => res.sendFile(path.join(here, 'index.html')));
+app.get('/health', (_req, res) => res.send(ready ? 'ok' : 'not connected'));
 
 app.get('/groups', async (req, res) => {
   if (req.query.key !== SECRET) return res.status(401).send('no');
@@ -81,12 +83,13 @@ app.get('/groups', async (req, res) => {
   res.json(Object.values(groups).map((g) => ({ id: g.id, name: g.subject })));
 });
 
-app.post('/order', async (req, res) => {
-  if (req.get('x-key') !== SECRET) return res.status(401).json({ error: 'unauthorized' });
+async function sendOrder(req, res) {
   if (!ready || !GROUP_ID) return res.status(503).json({ error: 'not ready' });
   if (limited()) return res.status(429).json({ error: 'too many requests' });
 
   const b = req.body || {};
+  if (!clean(b.from) || !clean(b.to)) return res.status(400).json({ error: 'missing' });
+
   const text = [
     '🚨 הזמנה חדשה',
     `שירות: ${clean(b.type, 40)}`,
@@ -103,7 +106,13 @@ app.post('/order', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: 'send failed' });
   }
-});
+}
+
+app.post('/order', (req, res, next) => {
+  if (req.get('x-key') !== SECRET) return res.status(401).json({ error: 'unauthorized' });
+  next();
+}, sendOrder);
+app.post('/order-public', sendOrder);
 
 app.listen(PORT, () => console.log('Server on', PORT));
 start();
