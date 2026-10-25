@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>דרך – נסיעות ומשלוחים</title>
+<style>
+:root{--bg:#f3f6f4;--s:#fff;--ink:#14231f;--mu:#5b6e68;--ln:#d5dfdb;--br:#0f6b5c;--bi:#fff;--ac:#f2b134;--ai:#2a1d00}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1816;--s:#162622;--ink:#eaf2ef;--mu:#9bb0a9;--ln:#2a3d38;--br:#3fc2a8;--bi:#05241e;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Arial,sans-serif;line-height:1.5}
+.w{max-width:640px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:2rem;margin:8px 0}
+.lead{color:var(--mu);margin:0 0 20px}
+.tabs,.opts{display:grid;gap:8px}.tabs{grid-template-columns:1fr 1fr;margin-bottom:14px}.opts{grid-template-columns:repeat(3,1fr)}
+button.t,button.o{padding:13px 6px;border:2px solid var(--ln);background:var(--s);color:var(--ink);border-radius:12px;font:inherit;cursor:pointer}
+button[aria-pressed=true]{border-color:var(--br)}
+button.t[aria-pressed=true]{background:var(--br);color:var(--bi)}
+.c{background:var(--s);border:1px solid var(--ln);border-radius:16px;padding:18px}
+label{display:block;font-weight:600;margin:12px 0 5px}
+input{width:100%;padding:12px;border:1.5px solid var(--ln);border-radius:10px;font:inherit;background:var(--bg);color:var(--ink)}
+.tot{display:flex;justify-content:space-between;align-items:baseline;margin-top:18px;padding-top:14px;border-top:1px dashed var(--ln)}
+.tot b{font-size:1.9rem;color:var(--br)}
+.go{width:100%;margin-top:12px;padding:15px;border:0;border-radius:12px;background:var(--ac);color:var(--ai);font:inherit;font-weight:800;font-size:1.1rem;cursor:pointer}
+.go:disabled{opacity:.6}
+#m{margin-top:14px;padding:14px;border-radius:12px;border:2px solid var(--br);display:none}
+</style>
+</head>
+<body><div class="w">
+<h1>דרך 🚗📦</h1>
+<p class="lead">מזמינים נסיעה או שליח. הסדרנים מקבלים את ההזמנה מיד.</p>
+<div class="tabs"><button class="t" id="a" aria-pressed="true">🚗 נסיעה</button><button class="t" id="b" aria-pressed="false">📦 משלוח</button></div>
+<div class="c">
+<label>מאיפה?</label><input id="f" placeholder="כתובת איסוף">
+<label>לאן?</label><input id="to" placeholder="כתובת יעד">
+<label>מרחק (ק״מ)</label><input id="km" type="number" min="1" max="200" value="8" inputmode="numeric">
+<label id="ol">סוג רכב</label><div class="opts" id="os"></div>
+<label>שם</label><input id="n" placeholder="השם שלך">
+<label>טלפון</label><input id="p" type="tel" placeholder="050-0000000" inputmode="tel">
+<div class="tot"><span>מחיר משוער</span><b id="pr">₪0</b></div>
+<button class="go" id="go">הזמנה</button>
+<div id="m" role="status"></div>
+</div></div>
+<script>
+var D={ride:{l:'סוג רכב',t:'נסיעה',o:[['רגיל',15,3.2],['משפחתי',22,4.2],['פרימיום',30,5.5]]},pkg:{l:'גודל חבילה',t:'משלוח',o:[['קטנה',12,2.2],['בינונית',20,3],['גדולה',35,4.5]]}};
+var mode='ride',pick=0,$=function(i){return document.getElementById(i)};
+function price(){var o=D[mode].o[pick];return Math.round(o[1]+o[2]*Math.max(1,+$('km').value||1))}
+function draw(){var d=D[mode];$('ol').textContent=d.l;
+$('os').innerHTML=d.o.map(function(o,i){return '<button class="o" data-i="'+i+'" aria-pressed="'+(i===pick)+'">'+o[0]+'</button>'}).join('');
+Array.prototype.forEach.call($('os').children,function(x){x.onclick=function(){pick=+x.dataset.i;draw()}});
+$('pr').textContent='₪'+price()}
+function set(m){mode=m;pick=0;$('a').setAttribute('aria-pressed',m==='ride');$('b').setAttribute('aria-pressed',m==='pkg');draw()}
+$('a').onclick=function(){set('ride')};$('b').onclick=function(){set('pkg')};$('km').oninput=draw;
+function msg(t){var m=$('m');m.textContent=t;m.style.display='block'}
+$('go').onclick=function(){
+if(!$('f').value.trim()||!$('to').value.trim()||!$('p').value.trim()){return msg('נא למלא כתובת איסוף, יעד וטלפון.')}
+var d=D[mode],btn=$('go');btn.disabled=true;msg('שולח...');
+fetch('/order-public',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:d.t+' · '+d.o[pick][0]+' · '+$('km').value+' ק״מ',from:$('f').value,to:$('to').value,price:'₪'+price(),name:$('n').value,phone:$('p').value})})
+.then(function(r){return r.json().then(function(j){return{ok:r.ok,j:j}})})
+.then(function(x){btn.disabled=false;msg(x.ok?'✅ ההזמנה נשלחה! ניצור איתך קשר בקרוב.':'לא הצלחנו לשלוח, נסה שוב בעוד רגע.')})
+.catch(function(){btn.disabled=false;msg('אין חיבור לשרת, נסה שוב.')})};
+draw();
+</script></body></html>
